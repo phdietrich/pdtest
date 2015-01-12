@@ -1,0 +1,127 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=1">
+<body>
+<script>
+"use strict";
+
+var DL = {};
+
+DL.serialize = function (o) {
+	var k,s=[];
+	for (k in o) {
+		s[s.length] = encodeURIComponent(k) + "=" + encodeURIComponent((o[k]||'').toString().replace(/\r?\n/g, "\r\n"));
+	}
+	return s.join("&").replace(/%20/g, "+");
+};
+
+DL.unserialize = function (s) {
+	var o = {};
+	s.replace(/([^=&]+)=([^&]*)/g, function(m, k, v){
+		o[k] = v;
+	});
+	return o;
+};
+
+DL.globalEval = function (script) {
+	try {
+		(window.execScript || function(code) {
+			window['eval'].call(window, code);
+		})(script.replace(/^\s*<!(?:\[CDATA\[|\-\-)|[\]\-]{2}>\s*$/g, ''));
+	} catch (e) {}
+}
+
+DL.localStorage = (function(){
+	var storage = {};
+
+	try {
+		if ('localStorage' in window && window['localStorage'] !== null) {
+			storage = window.localStorage
+		}
+	} catch (e) {}
+
+	return storage;
+})();
+
+DL.ajax = function (url, options) {
+	var options = options || {},
+		context = options.context	|| window,
+		headers = options.headers	|| {}, header,
+		method	= options.method	|| 'GET',
+		successCallback = options.success,
+
+		data =		DL.serialize(options.data||{}),
+		POSTdata = '',
+
+		// We keep MS implementation for old Windows Mobile phones
+		xhr = window.XMLHttpRequest ? new window.XMLHttpRequest : (window.ActiveXObject ? new ActiveXObject("MSXML2.XMLHTTP"): null);
+
+	if (data) {
+		if (method == 'GET') {
+			url += (/(?!^)\?/.test(url)?'&':'?') + data;
+		} else {
+			POSTdata = data;
+		}
+	}
+	
+	xhr.open(method, url, true);
+	
+	for (header in headers) {
+		xhr.setRequestHeader(header, headers[header]);
+	}
+
+	if (successCallback) {
+		xhr.onreadystatechange = function() {
+			if (xhr.readyState == 4 && xhr.status == 200){
+				successCallback.call(context, xhr.responseText);
+			}
+		};
+	}
+
+	xhr.send(POSTdata);
+};
+
+DL.UID = (function () {
+	var UID = null;
+
+	return {
+		get: function () {
+			return UID;
+		},
+		set: function (value) {
+			UID = value;
+			if (this.onupdate) this.onupdate.call(window, UID);
+		},
+		onupdate: null
+	}
+})();
+
+DL.UID.onupdate = function (UID) {
+	// Always try to set cookie again
+	var date = new Date();
+		date.setTime(date.getTime()+3e7);
+	document.cookie = "DL_UID=" + UID + "; expires=" + date.toGMTString() + "; domain=.DL_DOMAIN; path=/";
+
+	// Set UID in LocalStorage too
+	DL.localStorage.UID = UID;
+
+	// Notify opener
+	// JSON is used because of IE8 and 9
+	window.parent.postMessage(JSON.stringify({UID:UID}), document.referrer);
+};
+
+(function(){
+	var hash = DL.unserialize(location.hash.replace('#', ''));
+		hash.UID = hash.UID||DL.localStorage.UID||'';
+
+	var headers = {};
+	for (var k in hash) {
+		headers['X-DL-'+k.replace('_','-')] = hash[k];
+	}
+
+	DL.ajax('escout.php', {
+		success: DL.globalEval,
+		headers: headers
+	});
+})();
+</script>
